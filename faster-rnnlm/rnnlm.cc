@@ -24,6 +24,12 @@
 #include "faster-rnnlm/util.h"
 #include "faster-rnnlm/words.h"
 
+#include <fstream>
+#include <iostream>
+#include <dirent.h>
+#include <sys/stat.h>
+using namespace std;
+
 namespace {
 
 enum OOVPolicy {kSkipSentence, kConvertToUnk};
@@ -761,13 +767,49 @@ int main(int argc, char **argv) {
   if (n_samples > 0) {
     SampleFromLM(main_nnet, random_seed, n_samples, generate_temperature);
   } else if (!test_file.empty()) {
-    // Apply mode
-    const bool kPrintLogprobs = true;
-    Real test_enropy = EvaluateLM(main_nnet, test_file, kPrintLogprobs, nce_accurate_test);
-    if (!main_nnet->cfg.use_nce || nce_accurate_test) {
-      fprintf(stderr, "Test entropy %f\n", test_enropy);
+    DIR *dir;
+    struct dirent *dp;
+    struct stat st;
+    int result;
+    char target[MAX_STRING];
+    result = stat(test_file.c_str(), &st);
+    if (result != 0) {
+        fprintf(stderr, "%s is not found.\n", test_file.c_str());
+        return 1;
+    }
+    if ((st.st_mode & S_IFMT) == S_IFDIR) {
+      // Apply mode - multi
+        dir = opendir(test_file.c_str());
+        if (dir == NULL) { return 1; }
+        dp = readdir(dir);
+        while (dp != NULL) {
+            if (dp->d_name[0] == '.') {
+                dp = readdir(dir);
+                continue;
+            }
+            // process
+            sprintf(target, "%s/%s", test_file.c_str(), dp->d_name);
+            printf("%s\t", dp->d_name);
+            std::string target_str = target;
+            const bool kPrintLogprobs = true;
+            Real test_enropy = EvaluateLM(main_nnet, target_str, kPrintLogprobs, nce_accurate_test);
+            if (!main_nnet->cfg.use_nce || nce_accurate_test) {
+              fprintf(stderr, "Test entropy %f\n", test_enropy);
+            } else {
+              fprintf(stderr, "Use -nce-accurate-test to calculate entropy\n");
+            }
+            dp = readdir(dir);
+        }
+        if (dir != NULL) { closedir(dir); }
     } else {
-      fprintf(stderr, "Use -nce-accurate-test to calculate entropy\n");
+      // Apply mode - single
+      const bool kPrintLogprobs = true;
+      Real test_enropy = EvaluateLM(main_nnet, test_file, kPrintLogprobs, nce_accurate_test);
+      if (!main_nnet->cfg.use_nce || nce_accurate_test) {
+        fprintf(stderr, "Test entropy %f\n", test_enropy);
+      } else {
+        fprintf(stderr, "Use -nce-accurate-test to calculate entropy\n");
+      }
     }
   } else {
     // Train mode
